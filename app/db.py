@@ -8,10 +8,15 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import settings
 
-# Render's managed Postgres gives a "postgres://" URL; SQLAlchemy 2.x needs "postgresql://"
+# Render's managed Postgres gives a "postgres://" URL; SQLAlchemy needs the
+# dialect+driver form. We use psycopg (v3) instead of psycopg2 because it
+# ships prebuilt wheels for current Python versions (psycopg2-binary lags
+# behind on new Python releases and fails with an ImportError on them).
 db_url = settings.DATABASE_URL
 if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
+    db_url = db_url.replace("postgres://", "postgresql+psycopg://", 1)
+elif db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
 connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
 engine = create_engine(db_url, connect_args=connect_args, pool_pre_ping=True)
