@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wave 3 Screener — US Equities</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="tape">
+  <div class="tape__inner">
+    <div class="brand">
+      <span class="brand__mark">Ξ3</span>
+      <div class="brand__text">
+        <h1>Wave&nbsp;3 Screener</h1>
+        <p>US equities mid-impulse, on volume</p>
+      </div>
+    </div>
+    <div class="tape__stats">
+      {% if scan_date %}
+      <div class="stat">
+        <span class="stat__label">Last scan</span>
+        <span class="stat__value">{{ scan_date.strftime('%d %b %Y') }}</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Scanned</span>
+        <span class="stat__value">{{ last_run.tickers_scanned if last_run else '—' }}</span>
+      </div>
+      <div class="stat stat--accent">
+        <span class="stat__label">Matches</span>
+        <span class="stat__value">{{ results|length }}</span>
+      </div>
+      {% else %}
+      <div class="stat">
+        <span class="stat__label">Status</span>
+        <span class="stat__value">No scan yet</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+<main>
+  {% if not scan_date %}
+  <div class="empty">
+    <h2>Nothing scanned yet</h2>
+    <p>
+      This dashboard shows whatever the daily background job last found — it doesn't compute on page load.
+      Run the backfill once to load price history, then either wait for the scheduled cron job or trigger it
+      manually.
+    </p>
+    <pre>python -m app.backfill
+python -m app.scan_job</pre>
+  </div>
+  {% elif results|length == 0 %}
+  <div class="empty">
+    <h2>No wave-3-in-progress setups today</h2>
+    <p>The {{ last_run.tickers_scanned if last_run else '—' }} tickers scanned on {{ scan_date.strftime('%d %b %Y') }} didn't clear the pattern and volume thresholds. Check back after the next close.</p>
+  </div>
+  {% else %}
+  <div class="tablewrap">
+    <table class="board">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Name</th>
+          <th class="num">Close</th>
+          <th class="num">Wave 2 retrace</th>
+          <th class="num">Wave 3 extension</th>
+          <th class="num">Volume vs. baseline</th>
+          <th class="num">Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td class="sym">{{ r.symbol }}</td>
+          <td class="name">{{ r.name or "" }}</td>
+          <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
+          <td class="num">{{ r.retrace_pct }}%</td>
+          <td class="num">{{ r.wave3_extension_pct }}%</td>
+          <td class="num accent">{{ r.volume_ratio }}x</td>
+          <td class="num">
+            <div class="confcell">
+              <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
+              <span>{{ r.confidence }}</span>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</main>
+
+<footer>
+  <p>Heuristic pattern match, not investment advice. Elliott Wave counting is subjective — verify manually before acting. Data via EODHD.</p>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

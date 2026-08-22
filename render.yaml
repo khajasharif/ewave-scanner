@@ -1,0 +1,56 @@
+databases:
+  - name: ewave-db
+    plan: basic-256mb
+    databaseName: ewave
+    user: ewave
+
+services:
+  # Web dashboard — reads whatever the cron job last wrote, never scans live.
+  - type: web
+    name: ewave-web
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: EODHD_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ewave-db
+          property: connectionString
+      - key: ZIGZAG_PCT
+        value: "0.07"
+      - key: VOLUME_SURGE_MULT
+        value: "1.5"
+      - key: MIN_DOLLAR_VOLUME
+        value: "5000000"
+      - key: MIN_BARS
+        value: "120"
+
+  # Daily scan — appends today's bars (1 bulk API call) and re-screens every ticker.
+  # Cron schedules on Render run in UTC. 21:45 UTC ≈ 4:45pm US/Eastern after the
+  # 4:00pm close during EDT (UTC-4); shift to 22:45 during EST (UTC-5), i.e. roughly
+  # Nov–Mar. Adjust in the Render dashboard if you want it exact year-round.
+  - type: cron
+    name: ewave-daily-scan
+    runtime: python
+    plan: starter
+    schedule: "45 21 * * 1-5"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.scan_job
+    envVars:
+      - key: EODHD_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ewave-db
+          property: connectionString
+      - key: ZIGZAG_PCT
+        value: "0.07"
+      - key: VOLUME_SURGE_MULT
+        value: "1.5"
+      - key: MIN_DOLLAR_VOLUME
+        value: "5000000"
+      - key: MIN_BARS
+        value: "120"
