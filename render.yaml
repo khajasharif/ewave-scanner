@@ -6,10 +6,12 @@ databases:
 
 services:
   # Web dashboard — reads whatever the cron job last wrote, never scans live.
+  # Free tier: identical functionality, the only trade-off is the service
+  # "sleeping" after 15 min idle, adding ~30-60s to the next page load.
   - type: web
     name: ewave-web
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -29,6 +31,8 @@ services:
         value: "120"
 
   # Daily scan — appends today's bars (1 bulk API call) and re-screens every ticker.
+  # "plan" here just sets the instance size while it runs; Render bills cron jobs
+  # per minute of actual runtime now, not a flat monthly fee, so this costs cents/mo.
   # Cron schedules on Render run in UTC. 21:45 UTC ≈ 4:45pm US/Eastern after the
   # 4:00pm close during EDT (UTC-4); shift to 22:45 during EST (UTC-5), i.e. roughly
   # Nov–Mar. Adjust in the Render dashboard if you want it exact year-round.
