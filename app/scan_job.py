@@ -12,7 +12,8 @@ Steps:
      instantly (no on-demand computation).
 """
 import asyncio
-from datetime import datetime, date as date_cls
+import time
+from datetime import datetime, date as date_cls, timezone
 
 import httpx
 
@@ -65,28 +66,13 @@ async def update_today_bars(client: httpx.AsyncClient) -> int:
     return len(all_rows)
 
 
-def scan_all(chunk_size: int = 300) -> tuple[int, int, int]:
+def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, int]:
+    """Process one chunk of symbols in its own session. Returns
+    (scanned, established_matches, early_matches) for this chunk only.
+    Raises on failure so the caller can retry with a fresh connection.
+    """
     session = get_session()
-    tickers = session.query(Ticker).filter_by(is_active=True).all()
-    ticker_names = {t.symbol: t.name for t in tickers}
-    symbols = list(ticker_names.keys())
-    today = date_cls.today()
-
-    # clear any prior result rows for today (in case job re-runs)
-    session.query(ScanResult).filter_by(scan_date=today).delete()
-    session.commit()
-
-    scanned = 0
-    established_matches = 0
-    early_matches = 0
-
-    # Fetch price history in chunks of `chunk_size` symbols at a time (one
-    # query per chunk covering many tickers at once) instead of one query
-    # per ticker -- with ~18,000 tickers, one-query-per-ticker means 18,000
-    # network round-trips to a remote database, which is what was making
-    # this look "frozen."
-    for start in range(0, len(symbols), chunk_size):
-        chunk = symbols[start:start + chunk_size]
+    try:
         bars = (
             session.query(PriceBar)
             .filter(PriceBar.symbol.in_(chunk))
@@ -96,6 +82,10 @@ def scan_all(chunk_size: int = 300) -> tuple[int, int, int]:
         grouped: dict[str, list] = {}
         for b in bars:
             grouped.setdefault(b.symbol, []).append(b)
+
+        scanned = 0
+        established_matches = 0
+        early_matches = 0
 
         for symbol in chunk:
             sym_bars = grouped.get(symbol, [])
@@ -143,11 +133,58 @@ def scan_all(chunk_size: int = 300) -> tuple[int, int, int]:
                 ))
 
         session.commit()
+        return scanned, established_matches, early_matches
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int]:
+    # Short-lived session just to grab the ticker list and clear today's
+    # old results -- not held open for the rest of the scan.
+    session = get_session()
+    tickers = session.query(Ticker).filter_by(is_active=True).all()
+    ticker_names = {t.symbol: t.name for t in tickers}
+    symbols = list(ticker_names.keys())
+    today = date_cls.today()
+    session.query(ScanResult).filter_by(scan_date=today).delete()
+    session.commit()
+    session.close()
+
+    scanned = 0
+    established_matches = 0
+    early_matches = 0
+
+    # Each chunk gets its OWN fresh database session/connection (see
+    # _run_chunk), and is retried with backoff if the connection drops.
+    # Holding a single session open across the entire scan (which can take
+    # many minutes over a home internet connection to a remote database) is
+    # what was causing "server closed the connection unexpectedly" partway
+    # through a run.
+    for start in range(0, len(symbols), chunk_size):
+        chunk = symbols[start:start + chunk_size]
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                c_scanned, c_established, c_early = _run_chunk(chunk, ticker_names, today)
+                scanned += c_scanned
+                established_matches += c_established
+                early_matches += c_early
+                break
+            except Exception as e:
+                if attempt == max_retries:
+                    print(f"  Chunk at {start} failed after {max_retries} attempts ({e}); skipping this chunk.")
+                else:
+                    wait = 2 * attempt
+                    print(f"  Chunk at {start} failed (attempt {attempt}/{max_retries}): {e} -- retrying in {wait}s...")
+                    time.sleep(wait)
+
         total_matches = established_matches + early_matches
         print(f"  Scanned {min(start + chunk_size, len(symbols))}/{len(symbols)} tickers so far "
               f"({established_matches} established, {early_matches} early, {total_matches} total)...")
 
-    session.close()
     return scanned, established_matches, early_matches
 
 
@@ -176,7 +213,7 @@ async def main():
         run.tickers_scanned = scanned
         run.matches_found = total_matches
         run.status = "done"
-        run.finished_at = datetime.utcnow()
+        run.finished_at = datetime.now(timezone.utc)
         session.commit()
         session.close()
     except Exception as e:
@@ -184,7 +221,7 @@ async def main():
         run = session.get(ScanRun, run_id)
         run.status = "error"
         run.error = str(e)
-        run.finished_at = datetime.utcnow()
+        run.finished_at = datetime.now(timezone.utc)
         session.commit()
         session.close()
         raise
