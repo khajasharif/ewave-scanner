@@ -58,6 +58,7 @@ class ScanResult(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     symbol = Column(String, index=True, nullable=False)
     scan_date = Column(Date, index=True, nullable=False, default=date.today)
+    stage = Column(String, index=True, nullable=False, default="established")  # "established" or "early"
     name = Column(String, default="")
     last_close = Column(Float)
     confidence = Column(Float)
@@ -65,6 +66,7 @@ class ScanResult(Base):
     wave1_pct = Column(Float)
     wave3_extension_pct = Column(Float)
     retrace_pct = Column(Float)
+    bars_since_breakout = Column(Integer, nullable=True)
     pivots = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -84,6 +86,29 @@ class ScanRun(Base):
 
 def init_db():
     Base.metadata.create_all(engine)
+    _migrate_add_missing_columns()
+
+
+def _migrate_add_missing_columns():
+    """create_all() only creates tables that don't exist yet -- it won't add
+    new columns to a table that's already there. Since scan_results already
+    existed on deployed databases before `stage` and `bars_since_breakout`
+    were added, patch them in here (harmless no-op if they're already
+    present). Each ALTER runs in its own transaction: if one fails because
+    the column already exists, Postgres poisons the rest of that
+    transaction, so they can't share one.
+    """
+    from sqlalchemy import text
+    additions = [
+        ("scan_results", "stage", "VARCHAR DEFAULT 'established'"),
+        ("scan_results", "bars_since_breakout", "INTEGER"),
+    ]
+    for table, column, coltype in additions:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+        except Exception:
+            pass  # column already exists (or dialect quirk) -- safe to ignore
 
 
 def get_session():

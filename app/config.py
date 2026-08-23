@@ -24,6 +24,19 @@ class Settings:
     # Minimum dollar volume (price * volume, latest bar) to filter out illiquid/penny names
     MIN_DOLLAR_VOLUME: float = float(os.environ.get("MIN_DOLLAR_VOLUME", "5000000"))
 
+    # How far PAST the wave-1 breakout point a stock is allowed to have
+    # already moved (as a fraction of wave 1's length) and still count as
+    # "early" wave 3. Lower = catches stocks closer to the actual breakout
+    # moment, but finds fewer of them; higher = catches more stocks but some
+    # will already be well past the start.
+    MAX_WAVE3_EXTENSION_PCT: float = float(os.environ.get("MAX_WAVE3_EXTENSION_PCT", "0.15"))
+
+    # The breakout above the wave-1 high must have happened within this many
+    # trading days of the most recent bar. Keeps the screener from flagging
+    # a stock that broke out weeks ago and has just been drifting sideways
+    # within the extension cap above.
+    MAX_BREAKOUT_AGE_BARS: int = int(os.environ.get("MAX_BREAKOUT_AGE_BARS", "10"))
+
     # Concurrency for outbound EODHD calls during backfill
     BACKFILL_CONCURRENCY: int = int(os.environ.get("BACKFILL_CONCURRENCY", "10"))
 

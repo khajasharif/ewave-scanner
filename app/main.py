@@ -22,6 +22,21 @@ def _latest_scan_date(session):
     return row[0] if row else None
 
 
+def _serialize(r: ScanResult) -> dict:
+    return {
+        "symbol": r.symbol,
+        "name": r.name,
+        "last_close": r.last_close,
+        "confidence": r.confidence,
+        "volume_ratio": r.volume_ratio,
+        "wave1_pct": r.wave1_pct,
+        "wave3_extension_pct": r.wave3_extension_pct,
+        "retrace_pct": r.retrace_pct,
+        "bars_since_breakout": r.bars_since_breakout,
+        "pivots": r.pivots,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -33,34 +48,27 @@ def api_results():
     latest = _latest_scan_date(session)
     if not latest:
         session.close()
-        return JSONResponse({"scan_date": None, "results": []})
+        return JSONResponse({"scan_date": None, "established": [], "early": []})
 
-    rows = (
+    established = (
         session.query(ScanResult)
-        .filter_by(scan_date=latest)
+        .filter_by(scan_date=latest, stage="established")
+        .order_by(ScanResult.confidence.desc())
+        .all()
+    )
+    early = (
+        session.query(ScanResult)
+        .filter_by(scan_date=latest, stage="early")
         .order_by(ScanResult.confidence.desc())
         .all()
     )
     last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
-    data = [
-        {
-            "symbol": r.symbol,
-            "name": r.name,
-            "last_close": r.last_close,
-            "confidence": r.confidence,
-            "volume_ratio": r.volume_ratio,
-            "wave1_pct": r.wave1_pct,
-            "wave3_extension_pct": r.wave3_extension_pct,
-            "retrace_pct": r.retrace_pct,
-            "pivots": r.pivots,
-        }
-        for r in rows
-    ]
     session.close()
     return {
         "scan_date": latest.isoformat(),
         "tickers_scanned": last_run.tickers_scanned if last_run else None,
-        "results": data,
+        "established": [_serialize(r) for r in established],
+        "early": [_serialize(r) for r in early],
     }
 
 
@@ -68,12 +76,19 @@ def api_results():
 def index(request: Request):
     session = get_session()
     latest = _latest_scan_date(session)
-    results = []
+    established_results = []
+    early_results = []
     last_run = None
     if latest:
-        results = (
+        established_results = (
             session.query(ScanResult)
-            .filter_by(scan_date=latest)
+            .filter_by(scan_date=latest, stage="established")
+            .order_by(ScanResult.confidence.desc())
+            .all()
+        )
+        early_results = (
+            session.query(ScanResult)
+            .filter_by(scan_date=latest, stage="early")
             .order_by(ScanResult.confidence.desc())
             .all()
         )
@@ -85,7 +100,8 @@ def index(request: Request):
         {
             "request": request,
             "scan_date": latest,
-            "results": results,
+            "established_results": established_results,
+            "early_results": early_results,
             "last_run": last_run,
         },
     )

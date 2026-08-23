@@ -19,7 +19,7 @@ import httpx
 from app.config import settings
 from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars, upsert_tickers
 from app.eodhd_client import fetch_bulk_last_day
-from app.wave_detector import detect_wave3
+from app.wave_detector import detect_wave3_established, detect_wave3_early
 
 
 async def update_today_bars(client: httpx.AsyncClient) -> int:
@@ -65,7 +65,7 @@ async def update_today_bars(client: httpx.AsyncClient) -> int:
     return len(all_rows)
 
 
-def scan_all(chunk_size: int = 300) -> tuple[int, int]:
+def scan_all(chunk_size: int = 300) -> tuple[int, int, int]:
     session = get_session()
     tickers = session.query(Ticker).filter_by(is_active=True).all()
     ticker_names = {t.symbol: t.name for t in tickers}
@@ -77,7 +77,8 @@ def scan_all(chunk_size: int = 300) -> tuple[int, int]:
     session.commit()
 
     scanned = 0
-    matches = 0
+    established_matches = 0
+    early_matches = 0
 
     # Fetch price history in chunks of `chunk_size` symbols at a time (one
     # query per chunk covering many tickers at once) instead of one query
@@ -114,27 +115,40 @@ def scan_all(chunk_size: int = 300) -> tuple[int, int]:
             if dollar_volume < settings.MIN_DOLLAR_VOLUME:
                 continue
 
-            result = detect_wave3(dates, closes, volumes)
-            if result.matched:
-                matches += 1
+            # Run BOTH screeners on every ticker -- they're mutually
+            # exclusive by construction (established requires >=61.8% past
+            # the wave-2 low; early requires a fresh breakout under the
+            # extension cap), so a stock can appear in at most one of them.
+            established = detect_wave3_established(dates, closes, volumes)
+            if established.matched:
+                established_matches += 1
                 session.add(ScanResult(
-                    symbol=symbol,
-                    scan_date=today,
-                    name=ticker_names.get(symbol, ""),
-                    last_close=last_close,
-                    confidence=result.confidence,
-                    volume_ratio=result.volume_ratio,
-                    wave1_pct=result.wave1_pct,
-                    wave3_extension_pct=result.wave3_extension_pct,
-                    retrace_pct=result.retrace_pct,
-                    pivots=result.pivots,
+                    symbol=symbol, scan_date=today, stage="established",
+                    name=ticker_names.get(symbol, ""), last_close=last_close,
+                    confidence=established.confidence, volume_ratio=established.volume_ratio,
+                    wave1_pct=established.wave1_pct, wave3_extension_pct=established.wave3_extension_pct,
+                    retrace_pct=established.retrace_pct, pivots=established.pivots,
+                ))
+
+            early = detect_wave3_early(dates, closes, volumes)
+            if early.matched:
+                early_matches += 1
+                session.add(ScanResult(
+                    symbol=symbol, scan_date=today, stage="early",
+                    name=ticker_names.get(symbol, ""), last_close=last_close,
+                    confidence=early.confidence, volume_ratio=early.volume_ratio,
+                    wave1_pct=early.wave1_pct, wave3_extension_pct=early.wave3_extension_pct,
+                    retrace_pct=early.retrace_pct, bars_since_breakout=early.bars_since_breakout,
+                    pivots=early.pivots,
                 ))
 
         session.commit()
-        print(f"  Scanned {min(start + chunk_size, len(symbols))}/{len(symbols)} tickers so far ({matches} matches)...")
+        total_matches = established_matches + early_matches
+        print(f"  Scanned {min(start + chunk_size, len(symbols))}/{len(symbols)} tickers so far "
+              f"({established_matches} established, {early_matches} early, {total_matches} total)...")
 
     session.close()
-    return scanned, matches
+    return scanned, established_matches, early_matches
 
 
 async def main():
@@ -153,13 +167,14 @@ async def main():
             print(f"Appended {updated} fresh daily bars.")
 
         print("Scanning tickers for wave-3 setups...")
-        scanned, matches = scan_all()
-        print(f"Scanned {scanned} tickers, {matches} wave-3 matches found.")
+        scanned, established_matches, early_matches = scan_all()
+        total_matches = established_matches + early_matches
+        print(f"Scanned {scanned} tickers -- {established_matches} established, {early_matches} early, {total_matches} total.")
 
         session = get_session()
         run = session.get(ScanRun, run_id)
         run.tickers_scanned = scanned
-        run.matches_found = matches
+        run.matches_found = total_matches
         run.status = "done"
         run.finished_at = datetime.utcnow()
         session.commit()
