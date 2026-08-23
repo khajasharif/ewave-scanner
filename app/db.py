@@ -88,3 +88,27 @@ def init_db():
 
 def get_session():
     return SessionLocal()
+
+
+def upsert_price_bars(session, rows: list[dict]) -> None:
+    """Bulk insert PriceBar rows, silently skipping ones that already exist
+    (same symbol + date). One round-trip for the whole batch instead of a
+    separate existence-check query per row -- doing per-row checks against a
+    remote database is what was causing backfill to time out / drop
+    connection partway through.
+    """
+    if not rows:
+        return
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        stmt = pg_insert(PriceBar).values(rows)
+        stmt = stmt.on_conflict_do_nothing(index_elements=["symbol", "bar_date"])
+        session.execute(stmt)
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        stmt = sqlite_insert(PriceBar).values(rows)
+        stmt = stmt.on_conflict_do_nothing(index_elements=["symbol", "bar_date"])
+        session.execute(stmt)
+    else:
+        session.bulk_insert_mappings(PriceBar, rows)

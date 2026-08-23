@@ -18,7 +18,7 @@ from datetime import datetime, date as date_cls
 import httpx
 
 from app.config import settings
-from app.db import init_db, get_session, Ticker, PriceBar
+from app.db import init_db, get_session, Ticker, PriceBar, upsert_price_bars
 from app.eodhd_client import fetch_us_symbol_list, fetch_history_bounded
 
 
@@ -58,34 +58,44 @@ async def run(limit: int | None = None):
             ]
             results = await asyncio.gather(*tasks)
 
-            session = get_session()
+            # Build one big list of row dicts for the whole batch, then write
+            # it in a single bulk statement -- avoids one DB round-trip per
+            # row, which is what caused the remote connection to time out.
+            all_rows = []
+            touched_symbols = []
             for symbol, rows in results:
+                if not rows:
+                    continue
+                touched_symbols.append(symbol)
                 for r in rows:
                     try:
                         bar_date = datetime.strptime(r["date"], "%Y-%m-%d").date()
                     except Exception:
                         continue
-                    existing = (
-                        session.query(PriceBar)
-                        .filter_by(symbol=symbol, bar_date=bar_date)
-                        .first()
-                    )
-                    if existing:
-                        continue
-                    session.add(PriceBar(
-                        symbol=symbol,
-                        bar_date=bar_date,
-                        open=r.get("open"),
-                        high=r.get("high"),
-                        low=r.get("low"),
-                        close=r.get("close") or r.get("adjusted_close"),
-                        volume=r.get("volume") or 0,
-                    ))
-                t = session.get(Ticker, symbol)
-                if t:
-                    t.last_backfilled = datetime.utcnow()
-            session.commit()
-            session.close()
+                    all_rows.append({
+                        "symbol": symbol,
+                        "bar_date": bar_date,
+                        "open": r.get("open"),
+                        "high": r.get("high"),
+                        "low": r.get("low"),
+                        "close": r.get("close") or r.get("adjusted_close"),
+                        "volume": r.get("volume") or 0,
+                    })
+
+            session = get_session()
+            try:
+                upsert_price_bars(session, all_rows)
+                now = datetime.utcnow()
+                for symbol in touched_symbols:
+                    t = session.get(Ticker, symbol)
+                    if t:
+                        t.last_backfilled = now
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                print(f"  Batch starting at {start} failed to write ({e}); skipping this batch.")
+            finally:
+                session.close()
 
             done += len(batch)
             print(f"Backfilled {done}/{total} tickers...")

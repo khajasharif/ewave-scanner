@@ -17,7 +17,7 @@ from datetime import datetime, date as date_cls
 import httpx
 
 from app.config import settings
-from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun
+from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars
 from app.eodhd_client import fetch_bulk_last_day
 from app.wave_detector import detect_wave3
 
@@ -25,7 +25,8 @@ from app.wave_detector import detect_wave3
 async def update_today_bars(client: httpx.AsyncClient) -> int:
     rows = await fetch_bulk_last_day(client)
     session = get_session()
-    n = 0
+
+    all_rows = []
     for r in rows:
         code = r.get("code") or r.get("symbol") or r.get("Code")
         if not code:
@@ -35,28 +36,25 @@ async def update_today_bars(client: httpx.AsyncClient) -> int:
         except Exception:
             continue
 
-        existing = session.query(PriceBar).filter_by(symbol=code, bar_date=bar_date).first()
-        if existing:
-            continue
-
-        session.add(PriceBar(
-            symbol=code,
-            bar_date=bar_date,
-            open=r.get("open"),
-            high=r.get("high"),
-            low=r.get("low"),
-            close=r.get("close") or r.get("adjusted_close"),
-            volume=r.get("volume") or 0,
-        ))
+        all_rows.append({
+            "symbol": code,
+            "bar_date": bar_date,
+            "open": r.get("open"),
+            "high": r.get("high"),
+            "low": r.get("low"),
+            "close": r.get("close") or r.get("adjusted_close"),
+            "volume": r.get("volume") or 0,
+        })
 
         t = session.get(Ticker, code)
         if not t:
             t = Ticker(symbol=code, name=r.get("name", ""), exchange=settings.EODHD_EXCHANGE_CODE)
             session.add(t)
-        n += 1
+
+    upsert_price_bars(session, all_rows)
     session.commit()
     session.close()
-    return n
+    return len(all_rows)
 
 
 def scan_all() -> tuple[int, int]:
