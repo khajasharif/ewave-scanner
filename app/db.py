@@ -90,25 +90,30 @@ def get_session():
     return SessionLocal()
 
 
-def upsert_price_bars(session, rows: list[dict]) -> None:
+def upsert_price_bars(session, rows: list[dict], chunk_size: int = 1000) -> None:
     """Bulk insert PriceBar rows, silently skipping ones that already exist
-    (same symbol + date). One round-trip for the whole batch instead of a
-    separate existence-check query per row -- doing per-row checks against a
-    remote database is what was causing backfill to time out / drop
-    connection partway through.
+    (same symbol + date). Writes in chunks of `chunk_size` rows per
+    statement -- Postgres has a hard limit of ~65,535 bound parameters per
+    query, and this table has 7 columns, so a single statement can safely
+    hold up to ~9,000 rows; 1,000 leaves comfortable headroom. Without
+    chunking, one bulk statement covering a large batch silently fails
+    (exceeds the parameter limit) instead of raising something obvious.
     """
     if not rows:
         return
     dialect = session.get_bind().dialect.name
-    if dialect == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-        stmt = pg_insert(PriceBar).values(rows)
-        stmt = stmt.on_conflict_do_nothing(index_elements=["symbol", "bar_date"])
-        session.execute(stmt)
-    elif dialect == "sqlite":
-        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-        stmt = sqlite_insert(PriceBar).values(rows)
-        stmt = stmt.on_conflict_do_nothing(index_elements=["symbol", "bar_date"])
-        session.execute(stmt)
-    else:
-        session.bulk_insert_mappings(PriceBar, rows)
+
+    for i in range(0, len(rows), chunk_size):
+        chunk = rows[i:i + chunk_size]
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            stmt = pg_insert(PriceBar).values(chunk)
+            stmt = stmt.on_conflict_do_nothing(index_elements=["symbol", "bar_date"])
+            session.execute(stmt)
+        elif dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+            stmt = sqlite_insert(PriceBar).values(chunk)
+            stmt = stmt.on_conflict_do_nothing(index_elements=["symbol", "bar_date"])
+            session.execute(stmt)
+        else:
+            session.bulk_insert_mappings(PriceBar, chunk)
