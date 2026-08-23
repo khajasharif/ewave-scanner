@@ -17,7 +17,7 @@ from datetime import datetime, date as date_cls
 import httpx
 
 from app.config import settings
-from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars
+from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars, upsert_tickers
 from app.eodhd_client import fetch_bulk_last_day
 from app.wave_detector import detect_wave3
 
@@ -27,6 +27,7 @@ async def update_today_bars(client: httpx.AsyncClient) -> int:
     session = get_session()
 
     all_rows = []
+    ticker_rows = []
     for r in rows:
         code = r.get("code") or r.get("symbol") or r.get("Code")
         if not code:
@@ -45,12 +46,19 @@ async def update_today_bars(client: httpx.AsyncClient) -> int:
             "close": r.get("close") or r.get("adjusted_close"),
             "volume": r.get("volume") or 0,
         })
+        ticker_rows.append({
+            "symbol": code,
+            "name": r.get("name", ""),
+            "exchange": settings.EODHD_EXCHANGE_CODE,
+            "is_active": True,
+        })
 
-        t = session.get(Ticker, code)
-        if not t:
-            t = Ticker(symbol=code, name=r.get("name", ""), exchange=settings.EODHD_EXCHANGE_CODE)
-            session.add(t)
-
+    # Bulk upsert, not one session.get() per ticker -- this is the exact
+    # same per-row round-trip bug that was fixed in backfill.py, just
+    # present here too. With ~18,000 tickers this alone was enough to make
+    # the script sit silently for a very long time before ever reaching a
+    # print() statement.
+    upsert_tickers(session, ticker_rows)
     upsert_price_bars(session, all_rows)
     session.commit()
     session.close()
@@ -140,9 +148,11 @@ async def main():
 
     try:
         async with httpx.AsyncClient() as client:
+            print("Fetching today's bulk price update from EODHD...")
             updated = await update_today_bars(client)
             print(f"Appended {updated} fresh daily bars.")
 
+        print("Scanning tickers for wave-3 setups...")
         scanned, matches = scan_all()
         print(f"Scanned {scanned} tickers, {matches} wave-3 matches found.")
 
