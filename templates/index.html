@@ -31,7 +31,7 @@
       </div>
       <div class="stat stat--accent">
         <span class="stat__label">Matches</span>
-        <span class="stat__value">{{ results|length }}</span>
+        <span class="stat__value">{{ established_results|length + early_results|length }}</span>
       </div>
       {% else %}
       <div class="stat">
@@ -55,45 +55,107 @@
     <pre>python -m app.backfill
 python -m app.scan_job</pre>
   </div>
-  {% elif results|length == 0 %}
-  <div class="empty">
-    <h2>No wave-3-in-progress setups today</h2>
-    <p>The {{ last_run.tickers_scanned if last_run else '—' }} tickers scanned on {{ scan_date.strftime('%d %b %Y') }} didn't clear the pattern and volume thresholds. Check back after the next close.</p>
-  </div>
   {% else %}
-  <div class="tablewrap">
-    <table class="board">
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th>Name</th>
-          <th class="num">Close</th>
-          <th class="num">Wave 2 retrace</th>
-          <th class="num">Wave 3 extension</th>
-          <th class="num">Volume vs. baseline</th>
-          <th class="num">Confidence</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in results %}
-        <tr>
-          <td class="sym">{{ r.symbol }}</td>
-          <td class="name">{{ r.name or "" }}</td>
-          <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
-          <td class="num">{{ r.retrace_pct }}%</td>
-          <td class="num">{{ r.wave3_extension_pct }}%</td>
-          <td class="num accent">{{ r.volume_ratio }}x</td>
-          <td class="num">
-            <div class="confcell">
-              <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
-              <span>{{ r.confidence }}</span>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+
+  <div class="tabs">
+    <button class="tab tab--active" data-tab="early" onclick="switchTab('early')">
+      Just Starting <span class="tab__count">{{ early_results|length }}</span>
+    </button>
+    <button class="tab" data-tab="established" onclick="switchTab('established')">
+      Established <span class="tab__count">{{ established_results|length }}</span>
+    </button>
   </div>
+
+  <div id="panel-early" class="panel">
+    <p class="panel__desc">Stocks that just broke above their wave-1 high within the last {{ '10' }} trading days and haven't run far yet — earlier entry, less confirmation.</p>
+    {% if early_results|length == 0 %}
+    <div class="empty empty--compact">
+      <h2>No fresh breakouts today</h2>
+      <p>Nothing cleared the just-starting criteria in this scan. Check back after the next close.</p>
+    </div>
+    {% else %}
+    <div class="tablewrap">
+      <table class="board">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Name</th>
+            <th class="num">Close</th>
+            <th class="num">Wave 2 retrace</th>
+            <th class="num">Past breakout</th>
+            <th class="num">Bars since breakout</th>
+            <th class="num">Volume vs. baseline</th>
+            <th class="num">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in early_results %}
+          <tr>
+            <td class="sym">{{ r.symbol }}</td>
+            <td class="name">{{ r.name or "" }}</td>
+            <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
+            <td class="num">{{ r.retrace_pct }}%</td>
+            <td class="num">{{ r.wave3_extension_pct }}%</td>
+            <td class="num">{{ r.bars_since_breakout }}</td>
+            <td class="num accent">{{ r.volume_ratio }}x</td>
+            <td class="num">
+              <div class="confcell">
+                <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
+                <span>{{ r.confidence }}</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div id="panel-established" class="panel panel--hidden">
+    <p class="panel__desc">Stocks with a well-developed wave 3 already extended at least 61.8% past the wave-2 low — higher conviction, later entry.</p>
+    {% if established_results|length == 0 %}
+    <div class="empty empty--compact">
+      <h2>No established wave-3 setups today</h2>
+      <p>Nothing cleared the pattern and volume thresholds in this scan. Check back after the next close.</p>
+    </div>
+    {% else %}
+    <div class="tablewrap">
+      <table class="board">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Name</th>
+            <th class="num">Close</th>
+            <th class="num">Wave 2 retrace</th>
+            <th class="num">Wave 3 extension</th>
+            <th class="num">Volume vs. baseline</th>
+            <th class="num">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in established_results %}
+          <tr>
+            <td class="sym">{{ r.symbol }}</td>
+            <td class="name">{{ r.name or "" }}</td>
+            <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
+            <td class="num">{{ r.retrace_pct }}%</td>
+            <td class="num">{{ r.wave3_extension_pct }}%</td>
+            <td class="num accent">{{ r.volume_ratio }}x</td>
+            <td class="num">
+              <div class="confcell">
+                <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
+                <span>{{ r.confidence }}</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
   {% endif %}
 </main>
 
