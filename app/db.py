@@ -90,6 +90,47 @@ def get_session():
     return SessionLocal()
 
 
+def upsert_tickers(session, rows: list[dict], chunk_size: int = 1000) -> None:
+    """Bulk insert-or-update Ticker rows (by symbol). Same reasoning as
+    upsert_price_bars: doing one session.get()+add() round-trip per ticker
+    is what was timing out the connection when syncing the full ~18,000
+    ticker symbol list.
+    """
+    if not rows:
+        return
+    dialect = session.get_bind().dialect.name
+
+    for i in range(0, len(rows), chunk_size):
+        chunk = rows[i:i + chunk_size]
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            stmt = pg_insert(Ticker).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["symbol"],
+                set_={
+                    "name": stmt.excluded.name,
+                    "exchange": stmt.excluded.exchange,
+                    "is_active": stmt.excluded.is_active,
+                },
+            )
+            session.execute(stmt)
+        elif dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+            stmt = sqlite_insert(Ticker).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["symbol"],
+                set_={
+                    "name": stmt.excluded.name,
+                    "exchange": stmt.excluded.exchange,
+                    "is_active": stmt.excluded.is_active,
+                },
+            )
+            session.execute(stmt)
+        else:
+            for r in chunk:
+                session.merge(Ticker(**r))
+
+
 def upsert_price_bars(session, rows: list[dict], chunk_size: int = 1000) -> None:
     """Bulk insert PriceBar rows, silently skipping ones that already exist
     (same symbol + date). Writes in chunks of `chunk_size` rows per

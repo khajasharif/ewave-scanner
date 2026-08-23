@@ -18,7 +18,7 @@ from datetime import datetime, date as date_cls
 import httpx
 
 from app.config import settings
-from app.db import init_db, get_session, Ticker, PriceBar, upsert_price_bars
+from app.db import init_db, get_session, Ticker, PriceBar, upsert_price_bars, upsert_tickers
 from app.eodhd_client import fetch_us_symbol_list, fetch_history_bounded
 
 
@@ -31,18 +31,20 @@ async def run(limit: int | None = None):
             symbols = symbols[:limit]
         print(f"Got {len(symbols)} tickers.")
 
+        ticker_rows = [
+            {
+                "symbol": r["Code"],
+                "name": r.get("Name", ""),
+                "exchange": r.get("Exchange", ""),
+                "is_active": True,
+            }
+            for r in symbols
+        ]
         session = get_session()
-        for row in symbols:
-            code = row["Code"]
-            t = session.get(Ticker, code)
-            if not t:
-                t = Ticker(symbol=code)
-                session.add(t)
-            t.name = row.get("Name", "")
-            t.exchange = row.get("Exchange", "")
-            t.is_active = True
+        upsert_tickers(session, ticker_rows)
         session.commit()
         session.close()
+        print(f"Synced {len(ticker_rows)} ticker records.")
 
         semaphore = asyncio.Semaphore(settings.BACKFILL_CONCURRENCY)
         codes = [r["Code"] for r in symbols]
@@ -85,11 +87,13 @@ async def run(limit: int | None = None):
             session = get_session()
             try:
                 upsert_price_bars(session, all_rows)
-                now = datetime.utcnow()
-                for symbol in touched_symbols:
-                    t = session.get(Ticker, symbol)
-                    if t:
-                        t.last_backfilled = now
+                if touched_symbols:
+                    now = datetime.utcnow()
+                    (
+                        session.query(Ticker)
+                        .filter(Ticker.symbol.in_(touched_symbols))
+                        .update({"last_backfilled": now}, synchronize_session=False)
+                    )
                 session.commit()
             except Exception as e:
                 session.rollback()
