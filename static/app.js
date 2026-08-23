@@ -44,3 +44,13 @@
     });
   });
 })();
+
+// Simple tab switcher for the Just Starting / Established panels.
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach((btn) => {
+    btn.classList.toggle("tab--active", btn.dataset.tab === name);
+  });
+  document.querySelectorAll(".panel").forEach((panel) => {
+    panel.classList.toggle("panel--hidden", panel.id !== "panel-" + name);
+  });
+}
