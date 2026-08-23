@@ -57,9 +57,11 @@ async def update_today_bars(client: httpx.AsyncClient) -> int:
     return len(all_rows)
 
 
-def scan_all() -> tuple[int, int]:
+def scan_all(chunk_size: int = 300) -> tuple[int, int]:
     session = get_session()
     tickers = session.query(Ticker).filter_by(is_active=True).all()
+    ticker_names = {t.symbol: t.name for t in tickers}
+    symbols = list(ticker_names.keys())
     today = date_cls.today()
 
     # clear any prior result rows for today (in case job re-runs)
@@ -69,46 +71,60 @@ def scan_all() -> tuple[int, int]:
     scanned = 0
     matches = 0
 
-    for t in tickers:
+    # Fetch price history in chunks of `chunk_size` symbols at a time (one
+    # query per chunk covering many tickers at once) instead of one query
+    # per ticker -- with ~18,000 tickers, one-query-per-ticker means 18,000
+    # network round-trips to a remote database, which is what was making
+    # this look "frozen."
+    for start in range(0, len(symbols), chunk_size):
+        chunk = symbols[start:start + chunk_size]
         bars = (
             session.query(PriceBar)
-            .filter_by(symbol=t.symbol)
-            .order_by(PriceBar.bar_date.asc())
+            .filter(PriceBar.symbol.in_(chunk))
+            .order_by(PriceBar.symbol.asc(), PriceBar.bar_date.asc())
             .all()
         )
-        if len(bars) < settings.MIN_BARS:
-            continue
+        grouped: dict[str, list] = {}
+        for b in bars:
+            grouped.setdefault(b.symbol, []).append(b)
 
-        dates = [b.bar_date.isoformat() for b in bars]
-        closes = [b.close for b in bars if b.close is not None]
-        volumes = [b.volume or 0 for b in bars]
-        if len(closes) != len(bars):
-            continue
+        for symbol in chunk:
+            sym_bars = grouped.get(symbol, [])
+            if len(sym_bars) < settings.MIN_BARS:
+                continue
 
-        scanned += 1
-        last_close = closes[-1]
-        last_volume = volumes[-1]
-        dollar_volume = (last_close or 0) * (last_volume or 0)
-        if dollar_volume < settings.MIN_DOLLAR_VOLUME:
-            continue
+            dates = [b.bar_date.isoformat() for b in sym_bars]
+            closes = [b.close for b in sym_bars if b.close is not None]
+            volumes = [b.volume or 0 for b in sym_bars]
+            if len(closes) != len(sym_bars):
+                continue
 
-        result = detect_wave3(dates, closes, volumes)
-        if result.matched:
-            matches += 1
-            session.add(ScanResult(
-                symbol=t.symbol,
-                scan_date=today,
-                name=t.name,
-                last_close=last_close,
-                confidence=result.confidence,
-                volume_ratio=result.volume_ratio,
-                wave1_pct=result.wave1_pct,
-                wave3_extension_pct=result.wave3_extension_pct,
-                retrace_pct=result.retrace_pct,
-                pivots=result.pivots,
-            ))
+            scanned += 1
+            last_close = closes[-1]
+            last_volume = volumes[-1]
+            dollar_volume = (last_close or 0) * (last_volume or 0)
+            if dollar_volume < settings.MIN_DOLLAR_VOLUME:
+                continue
 
-    session.commit()
+            result = detect_wave3(dates, closes, volumes)
+            if result.matched:
+                matches += 1
+                session.add(ScanResult(
+                    symbol=symbol,
+                    scan_date=today,
+                    name=ticker_names.get(symbol, ""),
+                    last_close=last_close,
+                    confidence=result.confidence,
+                    volume_ratio=result.volume_ratio,
+                    wave1_pct=result.wave1_pct,
+                    wave3_extension_pct=result.wave3_extension_pct,
+                    retrace_pct=result.retrace_pct,
+                    pivots=result.pivots,
+                ))
+
+        session.commit()
+        print(f"  Scanned {min(start + chunk_size, len(symbols))}/{len(symbols)} tickers so far ({matches} matches)...")
+
     session.close()
     return scanned, matches
 
