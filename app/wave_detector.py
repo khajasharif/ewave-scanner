@@ -115,6 +115,25 @@ class _NoMatch(Exception):
         self.match = match
 
 
+def _has_implausible_single_day_move(closes: list[float], start_idx: int, max_pct: float) -> bool:
+    """Detect a probable un-adjusted stock split (or bad print) within the
+    window: a genuine single-day organic move of e.g. 200%+ is extremely
+    rare, but is exactly what an un-adjusted reverse split looks like
+    (common ratios: 2-for-1 up to 10-for-1+, i.e. 50-90%+ single-day
+    "moves"). This check doesn't depend on whether the data vendor's
+    adjusted-price field has caught up to a recent split -- it catches the
+    artifact directly in whatever series we were given.
+    """
+    for i in range(start_idx + 1, len(closes)):
+        prev, cur = closes[i - 1], closes[i]
+        if prev <= 0:
+            continue
+        pct_move = abs(cur - prev) / prev
+        if pct_move > max_pct:
+            return True
+    return False
+
+
 def _find_wave12(dates, closes, volumes, zigzag_pct):
     """Shared setup: find pivots P0/P1/P2, validate waves 1 and 2. Returns
     (p0, p1, p2, wave1_len, retrace_pct, current_price) or raises _NoMatch.
@@ -135,6 +154,17 @@ def _find_wave12(dates, closes, volumes, zigzag_pct):
         p0 = pivots[-3]
     else:
         p0 = Pivot(0, dates[0], closes[0], "low")
+
+    # Guard against un-adjusted stock splits (or bad prints) anywhere in the
+    # window we're about to base a pattern on. A real reverse split shows up
+    # as an enormous single-day "move" -- catch it here regardless of
+    # whether the data vendor's adjusted-price field is current.
+    if _has_implausible_single_day_move(closes, p0.index, settings.MAX_SINGLE_DAY_MOVE_PCT):
+        raise _NoMatch(WaveMatch(
+            matched=False,
+            reason=f"implausible single-day move (>{settings.MAX_SINGLE_DAY_MOVE_PCT:.0%}) in window -- "
+                   f"likely an un-adjusted split or bad data print, not real price action",
+        ))
 
     if not (p0.price < p1.price):
         raise _NoMatch(WaveMatch(matched=False, reason="wave 1 not upward"))

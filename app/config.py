@@ -37,6 +37,14 @@ class Settings:
     # within the extension cap above.
     MAX_BREAKOUT_AGE_BARS: int = int(os.environ.get("MAX_BREAKOUT_AGE_BARS", "10"))
 
+    # A single-day price move bigger than this (as a fraction, e.g. 0.5 =
+    # 50%) within the pattern window is treated as an un-adjusted stock
+    # split or bad data print, not real price action, and the match is
+    # rejected. Real organic single-day moves this large are extremely
+    # rare; reverse splits (2-for-1 and up) commonly produce exactly this
+    # signature.
+    MAX_SINGLE_DAY_MOVE_PCT: float = float(os.environ.get("MAX_SINGLE_DAY_MOVE_PCT", "0.5"))
+
     # Concurrency for outbound EODHD calls during backfill
     BACKFILL_CONCURRENCY: int = int(os.environ.get("BACKFILL_CONCURRENCY", "10"))
 
