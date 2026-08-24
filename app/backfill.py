@@ -13,7 +13,7 @@ day, so your ongoing EODHD usage stays low.
 """
 import asyncio
 import sys
-from datetime import datetime, date as date_cls
+from datetime import datetime, date as date_cls, timezone
 
 import httpx
 
@@ -80,7 +80,7 @@ async def run(limit: int | None = None):
                         "open": r.get("open"),
                         "high": r.get("high"),
                         "low": r.get("low"),
-                        "close": r.get("close") or r.get("adjusted_close"),
+                        "close": r.get("adjusted_close") or r.get("close"),
                         "volume": r.get("volume") or 0,
                     })
 
@@ -88,7 +88,7 @@ async def run(limit: int | None = None):
             try:
                 upsert_price_bars(session, all_rows)
                 if touched_symbols:
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     (
                         session.query(Ticker)
                         .filter(Ticker.symbol.in_(touched_symbols))

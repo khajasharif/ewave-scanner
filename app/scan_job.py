@@ -44,7 +44,7 @@ async def update_today_bars(client: httpx.AsyncClient) -> int:
             "open": r.get("open"),
             "high": r.get("high"),
             "low": r.get("low"),
-            "close": r.get("close") or r.get("adjusted_close"),
+            "close": r.get("adjusted_close") or r.get("close"),
             "volume": r.get("volume") or 0,
         })
         ticker_rows.append({
