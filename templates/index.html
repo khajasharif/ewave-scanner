@@ -31,7 +31,7 @@
       </div>
       <div class="stat stat--accent">
         <span class="stat__label">Matches</span>
-        <span class="stat__value">{{ established_results|length + early_results|length }}</span>
+        <span class="stat__value">{{ established_results|length + early_results|length + ma_ribbon_results|length }}</span>
       </div>
       {% else %}
       <div class="stat">
@@ -63,6 +63,9 @@ python -m app.scan_job</pre>
     </button>
     <button class="tab" data-tab="established" onclick="switchTab('established')">
       Established <span class="tab__count">{{ established_results|length }}</span>
+    </button>
+    <button class="tab" data-tab="ma_ribbon" onclick="switchTab('ma_ribbon')">
+      MA Ribbon <span class="tab__count">{{ ma_ribbon_results|length }}</span>
     </button>
   </div>
 
@@ -141,6 +144,60 @@ python -m app.scan_job</pre>
             <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
             <td class="num">{{ r.retrace_pct }}%</td>
             <td class="num">{{ r.wave3_extension_pct }}%</td>
+            <td class="num accent">{{ r.volume_ratio }}x</td>
+            <td class="num">
+              <div class="confcell">
+                <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
+                <span>{{ r.confidence }}</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div id="panel-ma_ribbon" class="panel panel--hidden">
+    <p class="panel__desc">Stocks with SMA21 &gt; SMA44 &gt; SMA80 &gt; SMA200 (all four rising), RSI between 50-80, MACD above zero, a volume pickup, and a real recent price move.</p>
+    {% if ma_ribbon_results|length == 0 %}
+    <div class="empty empty--compact">
+      <h2>No MA ribbon setups today</h2>
+      <p>Nothing had all four SMAs stacked and rising together with the momentum and volume confirmation in this scan. Check back after the next close.</p>
+    </div>
+    {% else %}
+    <div class="tablewrap">
+      <table class="board">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Name</th>
+            <th class="num">Close</th>
+            <th class="num">SMA21</th>
+            <th class="num">SMA44</th>
+            <th class="num">SMA80</th>
+            <th class="num">SMA200</th>
+            <th class="num">RSI</th>
+            <th class="num">MACD</th>
+            <th class="num">10d move</th>
+            <th class="num">Volume vs. baseline</th>
+            <th class="num">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in ma_ribbon_results %}
+          <tr>
+            <td class="sym">{{ r.symbol }}</td>
+            <td class="name">{{ r.name or "" }}</td>
+            <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma21) if r.sma21 else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma44) if r.sma44 else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma80) if r.sma80 else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma200) if r.sma200 else "—" }}</td>
+            <td class="num">{{ r.rsi }}</td>
+            <td class="num">{{ "%.3f"|format(r.macd) if r.macd else "—" }}</td>
+            <td class="num">{{ r.price_move_pct }}%</td>
             <td class="num accent">{{ r.volume_ratio }}x</td>
             <td class="num">
               <div class="confcell">
