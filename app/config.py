@@ -45,6 +45,20 @@ class Settings:
     # signature.
     MAX_SINGLE_DAY_MOVE_PCT: float = float(os.environ.get("MAX_SINGLE_DAY_MOVE_PCT", "0.5"))
 
+    # --- MA Ribbon screener settings ---
+    # How many bars back to compare each SMA against, to decide if it's
+    # "rising" (SMA now vs. SMA this many bars ago).
+    MA_SLOPE_LOOKBACK_BARS: int = int(os.environ.get("MA_SLOPE_LOOKBACK_BARS", "5"))
+
+    # Recent (last 5 bars) avg volume must exceed this multiple of the
+    # baseline (prior ~60 bars) average.
+    MA_VOLUME_SURGE_MULT: float = float(os.environ.get("MA_VOLUME_SURGE_MULT", "1.3"))
+
+    # Minimum price move required over MA_PRICE_MOVE_LOOKBACK_BARS trading
+    # days (e.g. 0.08 = 8%) for "the stock moves greatly".
+    MA_MIN_PRICE_MOVE_PCT: float = float(os.environ.get("MA_MIN_PRICE_MOVE_PCT", "0.08"))
+    MA_PRICE_MOVE_LOOKBACK_BARS: int = int(os.environ.get("MA_PRICE_MOVE_LOOKBACK_BARS", "10"))
+
     # Concurrency for outbound EODHD calls during backfill
     BACKFILL_CONCURRENCY: int = int(os.environ.get("BACKFILL_CONCURRENCY", "10"))
 

@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.db import init_db, get_session, ScanResult, ScanRun
+from app.db import init_db, get_session, ScanResult, ScanRun, MaRibbonResult
 
 app = FastAPI(title="Wave 3 Screener")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -37,6 +37,19 @@ def _serialize(r: ScanResult) -> dict:
     }
 
 
+def _serialize_ma(r: MaRibbonResult) -> dict:
+    return {
+        "symbol": r.symbol,
+        "name": r.name,
+        "last_close": r.last_close,
+        "confidence": r.confidence,
+        "sma21": r.sma21, "sma44": r.sma44, "sma80": r.sma80, "sma200": r.sma200,
+        "rsi": r.rsi, "macd": r.macd,
+        "volume_ratio": r.volume_ratio,
+        "price_move_pct": r.price_move_pct,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -63,12 +76,19 @@ def api_results():
         .all()
     )
     last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
+    ma_ribbon = (
+        session.query(MaRibbonResult)
+        .filter_by(scan_date=latest)
+        .order_by(MaRibbonResult.confidence.desc())
+        .all()
+    )
     session.close()
     return {
         "scan_date": latest.isoformat(),
         "tickers_scanned": last_run.tickers_scanned if last_run else None,
         "established": [_serialize(r) for r in established],
         "early": [_serialize(r) for r in early],
+        "ma_ribbon": [_serialize_ma(r) for r in ma_ribbon],
     }
 
 
@@ -78,6 +98,7 @@ def index(request: Request):
     latest = _latest_scan_date(session)
     established_results = []
     early_results = []
+    ma_ribbon_results = []
     last_run = None
     if latest:
         established_results = (
@@ -92,6 +113,12 @@ def index(request: Request):
             .order_by(ScanResult.confidence.desc())
             .all()
         )
+        ma_ribbon_results = (
+            session.query(MaRibbonResult)
+            .filter_by(scan_date=latest)
+            .order_by(MaRibbonResult.confidence.desc())
+            .all()
+        )
         last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
 
@@ -102,6 +129,7 @@ def index(request: Request):
             "scan_date": latest,
             "established_results": established_results,
             "early_results": early_results,
+            "ma_ribbon_results": ma_ribbon_results,
             "last_run": last_run,
         },
     )

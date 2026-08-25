@@ -84,6 +84,26 @@ class ScanRun(Base):
     error = Column(String, nullable=True)
 
 
+class MaRibbonResult(Base):
+    __tablename__ = "ma_ribbon_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String, index=True, nullable=False)
+    scan_date = Column(Date, index=True, nullable=False, default=date.today)
+    name = Column(String, default="")
+    last_close = Column(Float)
+    confidence = Column(Float)
+    sma21 = Column(Float)
+    sma44 = Column(Float)
+    sma80 = Column(Float)
+    sma200 = Column(Float)
+    rsi = Column(Float)
+    macd = Column(Float)
+    volume_ratio = Column(Float)
+    price_move_pct = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate_add_missing_columns()
