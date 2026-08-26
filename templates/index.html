@@ -31,7 +31,7 @@
       </div>
       <div class="stat stat--accent">
         <span class="stat__label">Matches</span>
-        <span class="stat__value">{{ established_results|length + early_results|length + ma_ribbon_results|length }}</span>
+        <span class="stat__value">{{ established_results|length + early_results|length + ma_ribbon_results|length + ma_ribbon_early_results|length }}</span>
       </div>
       {% else %}
       <div class="stat">
@@ -66,6 +66,9 @@ python -m app.scan_job</pre>
     </button>
     <button class="tab" data-tab="ma_ribbon" onclick="switchTab('ma_ribbon')">
       MA Ribbon <span class="tab__count">{{ ma_ribbon_results|length }}</span>
+    </button>
+    <button class="tab" data-tab="ma_ribbon_early" onclick="switchTab('ma_ribbon_early')">
+      MA Ribbon Early <span class="tab__count">{{ ma_ribbon_early_results|length }}</span>
     </button>
   </div>
 
@@ -198,6 +201,60 @@ python -m app.scan_job</pre>
             <td class="num">{{ r.rsi }}</td>
             <td class="num">{{ "%.3f"|format(r.macd) if r.macd else "—" }}</td>
             <td class="num">{{ r.price_move_pct }}%</td>
+            <td class="num accent">{{ r.volume_ratio }}x</td>
+            <td class="num">
+              <div class="confcell">
+                <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
+                <span>{{ r.confidence }}</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div id="panel-ma_ribbon_early" class="panel panel--hidden">
+    <p class="panel__desc">The ribbon just finished aligning (SMA21&gt;SMA44&gt;SMA80&gt;SMA200, all rising, within the last few bars), price is still close to SMA21, and only a small recent uptick is required — catches the setup near its start rather than after a move has already happened.</p>
+    {% if ma_ribbon_early_results|length == 0 %}
+    <div class="empty empty--compact">
+      <h2>No fresh ribbon formations today</h2>
+      <p>Nothing had a newly-formed stacked/rising SMA setup with momentum and volume confirmation in this scan. Check back after the next close.</p>
+    </div>
+    {% else %}
+    <div class="tablewrap">
+      <table class="board">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Name</th>
+            <th class="num">Close</th>
+            <th class="num">SMA21</th>
+            <th class="num">SMA44</th>
+            <th class="num">SMA80</th>
+            <th class="num">SMA200</th>
+            <th class="num">RSI</th>
+            <th class="num">MACD</th>
+            <th class="num">Ribbon age (bars)</th>
+            <th class="num">Volume vs. baseline</th>
+            <th class="num">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in ma_ribbon_early_results %}
+          <tr>
+            <td class="sym">{{ r.symbol }}</td>
+            <td class="name">{{ r.name or "" }}</td>
+            <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma21) if r.sma21 else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma44) if r.sma44 else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma80) if r.sma80 else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma200) if r.sma200 else "—" }}</td>
+            <td class="num">{{ r.rsi }}</td>
+            <td class="num">{{ "%.3f"|format(r.macd) if r.macd else "—" }}</td>
+            <td class="num">{{ r.alignment_age_bars }}</td>
             <td class="num accent">{{ r.volume_ratio }}x</td>
             <td class="num">
               <div class="confcell">
