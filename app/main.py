@@ -47,6 +47,7 @@ def _serialize_ma(r: MaRibbonResult) -> dict:
         "rsi": r.rsi, "macd": r.macd,
         "volume_ratio": r.volume_ratio,
         "price_move_pct": r.price_move_pct,
+        "alignment_age_bars": r.alignment_age_bars,
     }
 
 
@@ -61,7 +62,7 @@ def api_results():
     latest = _latest_scan_date(session)
     if not latest:
         session.close()
-        return JSONResponse({"scan_date": None, "established": [], "early": []})
+        return JSONResponse({"scan_date": None, "established": [], "early": [], "ma_ribbon": [], "ma_ribbon_early": []})
 
     established = (
         session.query(ScanResult)
@@ -75,13 +76,19 @@ def api_results():
         .order_by(ScanResult.confidence.desc())
         .all()
     )
-    last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     ma_ribbon = (
         session.query(MaRibbonResult)
-        .filter_by(scan_date=latest)
+        .filter_by(scan_date=latest, stage="confirmed")
         .order_by(MaRibbonResult.confidence.desc())
         .all()
     )
+    ma_ribbon_early = (
+        session.query(MaRibbonResult)
+        .filter_by(scan_date=latest, stage="early")
+        .order_by(MaRibbonResult.confidence.desc())
+        .all()
+    )
+    last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
     return {
         "scan_date": latest.isoformat(),
@@ -89,6 +96,7 @@ def api_results():
         "established": [_serialize(r) for r in established],
         "early": [_serialize(r) for r in early],
         "ma_ribbon": [_serialize_ma(r) for r in ma_ribbon],
+        "ma_ribbon_early": [_serialize_ma(r) for r in ma_ribbon_early],
     }
 
 
@@ -99,6 +107,7 @@ def index(request: Request):
     established_results = []
     early_results = []
     ma_ribbon_results = []
+    ma_ribbon_early_results = []
     last_run = None
     if latest:
         established_results = (
@@ -115,7 +124,13 @@ def index(request: Request):
         )
         ma_ribbon_results = (
             session.query(MaRibbonResult)
-            .filter_by(scan_date=latest)
+            .filter_by(scan_date=latest, stage="confirmed")
+            .order_by(MaRibbonResult.confidence.desc())
+            .all()
+        )
+        ma_ribbon_early_results = (
+            session.query(MaRibbonResult)
+            .filter_by(scan_date=latest, stage="early")
             .order_by(MaRibbonResult.confidence.desc())
             .all()
         )
@@ -130,6 +145,7 @@ def index(request: Request):
             "established_results": established_results,
             "early_results": early_results,
             "ma_ribbon_results": ma_ribbon_results,
+            "ma_ribbon_early_results": ma_ribbon_early_results,
             "last_run": last_run,
         },
     )

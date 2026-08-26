@@ -52,12 +52,33 @@ class Settings:
 
     # Recent (last 5 bars) avg volume must exceed this multiple of the
     # baseline (prior ~60 bars) average.
-    MA_VOLUME_SURGE_MULT: float = float(os.environ.get("MA_VOLUME_SURGE_MULT", "1.3"))
-
+    MA_VOLUME_SURGE_MULT: float = float(os.environ.get("MA_VOLUME_SURGE_MULT", "3.0"))
     # Minimum price move required over MA_PRICE_MOVE_LOOKBACK_BARS trading
     # days (e.g. 0.08 = 8%) for "the stock moves greatly".
     MA_MIN_PRICE_MOVE_PCT: float = float(os.environ.get("MA_MIN_PRICE_MOVE_PCT", "0.08"))
     MA_PRICE_MOVE_LOOKBACK_BARS: int = int(os.environ.get("MA_PRICE_MOVE_LOOKBACK_BARS", "10"))
+
+    # --- MA Ribbon EARLY variant settings ---
+    # The stacked SMA order must have formed within this many bars to count
+    # as "just aligned" rather than old news.
+    MA_MAX_ALIGNMENT_AGE_BARS: int = int(os.environ.get("MA_MAX_ALIGNMENT_AGE_BARS", "5"))
+
+    # Price can be at most this far above SMA21 (as a fraction) and still
+    # count as "near the breakout, not yet extended".
+    MA_MAX_PRICE_ABOVE_SMA21_PCT: float = float(os.environ.get("MA_MAX_PRICE_ABOVE_SMA21_PCT", "0.06"))
+
+    # A much smaller move than the confirmed variant's -- just enough to
+    # capture "the second green candle" rather than a big cumulative move.
+    MA_EARLY_MIN_RECENT_MOVE_PCT: float = float(os.environ.get("MA_EARLY_MIN_RECENT_MOVE_PCT", "0.02"))
+    MA_EARLY_RECENT_MOVE_LOOKBACK_BARS: int = int(os.environ.get("MA_EARLY_RECENT_MOVE_LOOKBACK_BARS", "3"))
+
+    # The Early tab uses its OWN (lower) volume bar than the Confirmed tab.
+    # Volume typically builds up gradually AFTER a breakout starts, not
+    # instantly on the first aligned bar -- requiring the same strict bar
+    # as Confirmed would make Early nearly impossible to trigger, since a
+    # stock rarely hits a big volume multiple at the exact moment the
+    # ribbon just finished aligning.
+    MA_EARLY_VOLUME_SURGE_MULT: float = float(os.environ.get("MA_EARLY_VOLUME_SURGE_MULT", "1.4"))
 
     # Concurrency for outbound EODHD calls during backfill
     BACKFILL_CONCURRENCY: int = int(os.environ.get("BACKFILL_CONCURRENCY", "10"))

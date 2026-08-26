@@ -90,6 +90,7 @@ class MaRibbonResult(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     symbol = Column(String, index=True, nullable=False)
     scan_date = Column(Date, index=True, nullable=False, default=date.today)
+    stage = Column(String, index=True, nullable=False, default="confirmed")  # "confirmed" or "early"
     name = Column(String, default="")
     last_close = Column(Float)
     confidence = Column(Float)
@@ -101,6 +102,7 @@ class MaRibbonResult(Base):
     macd = Column(Float)
     volume_ratio = Column(Float)
     price_move_pct = Column(Float)
+    alignment_age_bars = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -122,6 +124,8 @@ def _migrate_add_missing_columns():
     additions = [
         ("scan_results", "stage", "VARCHAR DEFAULT 'established'"),
         ("scan_results", "bars_since_breakout", "INTEGER"),
+        ("ma_ribbon_results", "stage", "VARCHAR DEFAULT 'confirmed'"),
+        ("ma_ribbon_results", "alignment_age_bars", "INTEGER"),
     ]
     for table, column, coltype in additions:
         try:

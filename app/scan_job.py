@@ -21,7 +21,7 @@ from app.config import settings
 from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars, upsert_tickers, MaRibbonResult
 from app.eodhd_client import fetch_bulk_last_day
 from app.wave_detector import detect_wave3_established, detect_wave3_early
-from app.ma_ribbon_detector import detect_ma_ribbon
+from app.ma_ribbon_detector import detect_ma_ribbon, detect_ma_ribbon_early
 
 
 async def update_today_bars(client: httpx.AsyncClient) -> int:
@@ -88,6 +88,7 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
         established_matches = 0
         early_matches = 0
         ma_ribbon_matches = 0
+        ma_ribbon_early_matches = 0
 
         for symbol in chunk:
             sym_bars = grouped.get(symbol, [])
@@ -140,7 +141,7 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
             if ma_ribbon.matched:
                 ma_ribbon_matches += 1
                 session.add(MaRibbonResult(
-                    symbol=symbol, scan_date=today,
+                    symbol=symbol, scan_date=today, stage="confirmed",
                     name=ticker_names.get(symbol, ""), last_close=last_close,
                     confidence=ma_ribbon.confidence,
                     sma21=ma_ribbon.sma21, sma44=ma_ribbon.sma44,
@@ -150,8 +151,23 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
                     price_move_pct=ma_ribbon.price_move_pct,
                 ))
 
+            ma_ribbon_early = detect_ma_ribbon_early(dates, closes, volumes)
+            if ma_ribbon_early.matched:
+                ma_ribbon_early_matches += 1
+                session.add(MaRibbonResult(
+                    symbol=symbol, scan_date=today, stage="early",
+                    name=ticker_names.get(symbol, ""), last_close=last_close,
+                    confidence=ma_ribbon_early.confidence,
+                    sma21=ma_ribbon_early.sma21, sma44=ma_ribbon_early.sma44,
+                    sma80=ma_ribbon_early.sma80, sma200=ma_ribbon_early.sma200,
+                    rsi=ma_ribbon_early.rsi, macd=ma_ribbon_early.macd,
+                    volume_ratio=ma_ribbon_early.volume_ratio,
+                    price_move_pct=ma_ribbon_early.price_move_pct,
+                    alignment_age_bars=ma_ribbon_early.alignment_age_bars,
+                ))
+
         session.commit()
-        return scanned, established_matches, early_matches, ma_ribbon_matches
+        return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches
     except Exception:
         session.rollback()
         raise
@@ -159,7 +175,7 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
         session.close()
 
 
-def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int, int]:
+def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int, int, int]:
     # Short-lived session just to grab the ticker list and clear today's
     # old results -- not held open for the rest of the scan.
     session = get_session()
@@ -176,6 +192,7 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
     established_matches = 0
     early_matches = 0
     ma_ribbon_matches = 0
+    ma_ribbon_early_matches = 0
 
     # Each chunk gets its OWN fresh database session/connection (see
     # _run_chunk), and is retried with backoff if the connection drops.
@@ -188,11 +205,12 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
 
         for attempt in range(1, max_retries + 1):
             try:
-                c_scanned, c_established, c_early, c_ma = _run_chunk(chunk, ticker_names, today)
+                c_scanned, c_established, c_early, c_ma, c_ma_early = _run_chunk(chunk, ticker_names, today)
                 scanned += c_scanned
                 established_matches += c_established
                 early_matches += c_early
                 ma_ribbon_matches += c_ma
+                ma_ribbon_early_matches += c_ma_early
                 break
             except Exception as e:
                 if attempt == max_retries:
@@ -202,11 +220,12 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
                     print(f"  Chunk at {start} failed (attempt {attempt}/{max_retries}): {e} -- retrying in {wait}s...")
                     time.sleep(wait)
 
-        total_matches = established_matches + early_matches + ma_ribbon_matches
+        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches
         print(f"  Scanned {min(start + chunk_size, len(symbols))}/{len(symbols)} tickers so far "
-              f"({established_matches} established, {early_matches} early, {ma_ribbon_matches} ma-ribbon, {total_matches} total)...")
+              f"({established_matches} established, {early_matches} early, {ma_ribbon_matches} ma-ribbon, "
+              f"{ma_ribbon_early_matches} ma-ribbon-early, {total_matches} total)...")
 
-    return scanned, established_matches, early_matches, ma_ribbon_matches
+    return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches
 
 
 async def main():
@@ -225,10 +244,10 @@ async def main():
             print(f"Appended {updated} fresh daily bars.")
 
         print("Scanning tickers for wave-3 and MA-ribbon setups...")
-        scanned, established_matches, early_matches, ma_ribbon_matches = scan_all()
-        total_matches = established_matches + early_matches + ma_ribbon_matches
+        scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches = scan_all()
+        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches
         print(f"Scanned {scanned} tickers -- {established_matches} established, {early_matches} early, "
-              f"{ma_ribbon_matches} ma-ribbon, {total_matches} total.")
+              f"{ma_ribbon_matches} ma-ribbon, {ma_ribbon_early_matches} ma-ribbon-early, {total_matches} total.")
 
         session = get_session()
         run = session.get(ScanRun, run_id)
