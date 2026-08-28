@@ -80,6 +80,16 @@ class Settings:
     # ribbon just finished aligning.
     MA_EARLY_VOLUME_SURGE_MULT: float = float(os.environ.get("MA_EARLY_VOLUME_SURGE_MULT", "1.4"))
 
+    # --- 44/200 Golden Cross Retest screener settings ---
+    RETEST_SLOPE_LOOKBACK_BARS: int = int(os.environ.get("RETEST_SLOPE_LOOKBACK_BARS", "5"))
+    # How far back to search for the 44/200 golden cross event itself.
+    RETEST_CROSS_LOOKBACK_BARS: int = int(os.environ.get("RETEST_CROSS_LOOKBACK_BARS", "90"))
+    # How close price must come to the SMA44/SMA200 zone to count as a
+    # genuine "retest" (as a fraction, e.g. 0.02 = 2% buffer around the zone).
+    RETEST_ZONE_BUFFER_PCT: float = float(os.environ.get("RETEST_ZONE_BUFFER_PCT", "0.02"))
+    # The retest (and reversal confirmation) must be this recent to count.
+    RETEST_MAX_AGE_BARS: int = int(os.environ.get("RETEST_MAX_AGE_BARS", "5"))
+
     # Concurrency for outbound EODHD calls during backfill
     BACKFILL_CONCURRENCY: int = int(os.environ.get("BACKFILL_CONCURRENCY", "10"))
 

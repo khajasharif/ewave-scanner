@@ -106,6 +106,23 @@ class MaRibbonResult(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class RetestResult(Base):
+    __tablename__ = "retest_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String, index=True, nullable=False)
+    scan_date = Column(Date, index=True, nullable=False, default=date.today)
+    name = Column(String, default="")
+    last_close = Column(Float)
+    confidence = Column(Float)
+    sma44 = Column(Float)
+    sma200 = Column(Float)
+    cross_age_bars = Column(Integer, nullable=True)
+    retest_age_bars = Column(Integer, nullable=True)
+    patterns = Column(JSON)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate_add_missing_columns()

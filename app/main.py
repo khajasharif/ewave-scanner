@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.db import init_db, get_session, ScanResult, ScanRun, MaRibbonResult
+from app.db import init_db, get_session, ScanResult, ScanRun, MaRibbonResult, RetestResult
 
 app = FastAPI(title="Wave 3 Screener")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -51,6 +51,19 @@ def _serialize_ma(r: MaRibbonResult) -> dict:
     }
 
 
+def _serialize_retest(r: RetestResult) -> dict:
+    return {
+        "symbol": r.symbol,
+        "name": r.name,
+        "last_close": r.last_close,
+        "confidence": r.confidence,
+        "sma44": r.sma44, "sma200": r.sma200,
+        "cross_age_bars": r.cross_age_bars,
+        "retest_age_bars": r.retest_age_bars,
+        "patterns": r.patterns,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -62,7 +75,7 @@ def api_results():
     latest = _latest_scan_date(session)
     if not latest:
         session.close()
-        return JSONResponse({"scan_date": None, "established": [], "early": [], "ma_ribbon": [], "ma_ribbon_early": []})
+        return JSONResponse({"scan_date": None, "established": [], "early": [], "ma_ribbon": [], "ma_ribbon_early": [], "retest": []})
 
     established = (
         session.query(ScanResult)
@@ -88,6 +101,12 @@ def api_results():
         .order_by(MaRibbonResult.confidence.desc())
         .all()
     )
+    retest = (
+        session.query(RetestResult)
+        .filter_by(scan_date=latest)
+        .order_by(RetestResult.confidence.desc())
+        .all()
+    )
     last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
     return {
@@ -97,6 +116,7 @@ def api_results():
         "early": [_serialize(r) for r in early],
         "ma_ribbon": [_serialize_ma(r) for r in ma_ribbon],
         "ma_ribbon_early": [_serialize_ma(r) for r in ma_ribbon_early],
+        "retest": [_serialize_retest(r) for r in retest],
     }
 
 
@@ -108,6 +128,7 @@ def index(request: Request):
     early_results = []
     ma_ribbon_results = []
     ma_ribbon_early_results = []
+    retest_results = []
     last_run = None
     if latest:
         established_results = (
@@ -134,6 +155,12 @@ def index(request: Request):
             .order_by(MaRibbonResult.confidence.desc())
             .all()
         )
+        retest_results = (
+            session.query(RetestResult)
+            .filter_by(scan_date=latest)
+            .order_by(RetestResult.confidence.desc())
+            .all()
+        )
         last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
 
@@ -146,6 +173,7 @@ def index(request: Request):
             "early_results": early_results,
             "ma_ribbon_results": ma_ribbon_results,
             "ma_ribbon_early_results": ma_ribbon_early_results,
+            "retest_results": retest_results,
             "last_run": last_run,
         },
     )
