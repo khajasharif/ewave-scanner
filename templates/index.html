@@ -31,7 +31,7 @@
       </div>
       <div class="stat stat--accent">
         <span class="stat__label">Matches</span>
-        <span class="stat__value">{{ established_results|length + early_results|length + ma_ribbon_results|length + ma_ribbon_early_results|length }}</span>
+        <span class="stat__value">{{ established_results|length + early_results|length + ma_ribbon_results|length + ma_ribbon_early_results|length + retest_results|length }}</span>
       </div>
       {% else %}
       <div class="stat">
@@ -69,6 +69,9 @@ python -m app.scan_job</pre>
     </button>
     <button class="tab" data-tab="ma_ribbon_early" onclick="switchTab('ma_ribbon_early')">
       MA Ribbon Early <span class="tab__count">{{ ma_ribbon_early_results|length }}</span>
+    </button>
+    <button class="tab" data-tab="retest" onclick="switchTab('retest')">
+      44/200 Retest <span class="tab__count">{{ retest_results|length }}</span>
     </button>
   </div>
 
@@ -256,6 +259,54 @@ python -m app.scan_job</pre>
             <td class="num">{{ "%.3f"|format(r.macd) if r.macd else "—" }}</td>
             <td class="num">{{ r.alignment_age_bars }}</td>
             <td class="num accent">{{ r.volume_ratio }}x</td>
+            <td class="num">
+              <div class="confcell">
+                <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
+                <span>{{ r.confidence }}</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div id="panel-retest" class="panel panel--hidden">
+    <p class="panel__desc">SMA44 crossed above SMA200 (both rising), price pulled back to retest the crossover zone, and reversed upward — confirmed by a bullish candlestick pattern or bullish RSI divergence.</p>
+    {% if retest_results|length == 0 %}
+    <div class="empty empty--compact">
+      <h2>No fresh retests today</h2>
+      <p>Nothing had a golden-cross retest with a confirming reversal pattern in this scan. Check back after the next close.</p>
+    </div>
+    {% else %}
+    <div class="tablewrap">
+      <table class="board">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Name</th>
+            <th class="num">Close</th>
+            <th class="num">SMA44</th>
+            <th class="num">SMA200</th>
+            <th class="num">Cross age (bars)</th>
+            <th class="num">Retest age (bars)</th>
+            <th>Confirming pattern(s)</th>
+            <th class="num">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in retest_results %}
+          <tr>
+            <td class="sym">{{ r.symbol }}</td>
+            <td class="name">{{ r.name or "" }}</td>
+            <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma44) if r.sma44 else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.sma200) if r.sma200 else "—" }}</td>
+            <td class="num">{{ r.cross_age_bars }}</td>
+            <td class="num">{{ r.retest_age_bars }}</td>
+            <td class="name">{{ r.patterns|join(", ") if r.patterns else "—" }}</td>
             <td class="num">
               <div class="confcell">
                 <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
