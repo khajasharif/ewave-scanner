@@ -123,6 +123,23 @@ class RetestResult(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ChartPatternResult(Base):
+    __tablename__ = "chart_pattern_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String, index=True, nullable=False)
+    scan_date = Column(Date, index=True, nullable=False, default=date.today)
+    pattern_name = Column(String, default="")
+    name = Column(String, default="")
+    last_close = Column(Float)
+    confidence = Column(Float)
+    resistance_level = Column(Float)
+    breakout_age_bars = Column(Integer, nullable=True)
+    rsi = Column(Float)
+    volume_ratio = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate_add_missing_columns()

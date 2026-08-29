@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.db import init_db, get_session, ScanResult, ScanRun, MaRibbonResult, RetestResult
+from app.db import init_db, get_session, ScanResult, ScanRun, MaRibbonResult, RetestResult, ChartPatternResult
 
 app = FastAPI(title="Wave 3 Screener")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -18,7 +18,14 @@ def on_startup():
 
 
 def _latest_scan_date(session):
-    row = session.query(ScanResult.scan_date).order_by(ScanResult.scan_date.desc()).first()
+    """Determines the most recent scan date from ScanRun -- not from any
+    single result table. ScanRun always gets a row on every scan attempt
+    regardless of whether any pattern actually matched that day; relying
+    on (say) ScanResult having a row would wrongly show "No scan yet" on
+    a day where zero wave-pattern matches occurred but chart-pattern or
+    retest matches did.
+    """
+    row = session.query(ScanRun.run_date).order_by(ScanRun.run_date.desc()).first()
     return row[0] if row else None
 
 
@@ -64,6 +71,20 @@ def _serialize_retest(r: RetestResult) -> dict:
     }
 
 
+def _serialize_chart(r: ChartPatternResult) -> dict:
+    return {
+        "symbol": r.symbol,
+        "name": r.name,
+        "pattern_name": r.pattern_name,
+        "last_close": r.last_close,
+        "confidence": r.confidence,
+        "resistance_level": r.resistance_level,
+        "breakout_age_bars": r.breakout_age_bars,
+        "rsi": r.rsi,
+        "volume_ratio": r.volume_ratio,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -75,7 +96,10 @@ def api_results():
     latest = _latest_scan_date(session)
     if not latest:
         session.close()
-        return JSONResponse({"scan_date": None, "established": [], "early": [], "ma_ribbon": [], "ma_ribbon_early": [], "retest": []})
+        return JSONResponse({
+            "scan_date": None, "established": [], "early": [],
+            "ma_ribbon": [], "ma_ribbon_early": [], "retest": [], "chart_patterns": [],
+        })
 
     established = (
         session.query(ScanResult)
@@ -107,6 +131,12 @@ def api_results():
         .order_by(RetestResult.confidence.desc())
         .all()
     )
+    chart_patterns = (
+        session.query(ChartPatternResult)
+        .filter_by(scan_date=latest)
+        .order_by(ChartPatternResult.confidence.desc())
+        .all()
+    )
     last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
     return {
@@ -117,6 +147,7 @@ def api_results():
         "ma_ribbon": [_serialize_ma(r) for r in ma_ribbon],
         "ma_ribbon_early": [_serialize_ma(r) for r in ma_ribbon_early],
         "retest": [_serialize_retest(r) for r in retest],
+        "chart_patterns": [_serialize_chart(r) for r in chart_patterns],
     }
 
 
@@ -129,6 +160,7 @@ def index(request: Request):
     ma_ribbon_results = []
     ma_ribbon_early_results = []
     retest_results = []
+    chart_pattern_results = []
     last_run = None
     if latest:
         established_results = (
@@ -161,6 +193,12 @@ def index(request: Request):
             .order_by(RetestResult.confidence.desc())
             .all()
         )
+        chart_pattern_results = (
+            session.query(ChartPatternResult)
+            .filter_by(scan_date=latest)
+            .order_by(ChartPatternResult.confidence.desc())
+            .all()
+        )
         last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
 
@@ -174,6 +212,7 @@ def index(request: Request):
             "ma_ribbon_results": ma_ribbon_results,
             "ma_ribbon_early_results": ma_ribbon_early_results,
             "retest_results": retest_results,
+            "chart_pattern_results": chart_pattern_results,
             "last_run": last_run,
         },
     )

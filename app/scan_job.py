@@ -18,11 +18,12 @@ from datetime import datetime, date as date_cls, timezone
 import httpx
 
 from app.config import settings
-from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars, upsert_tickers, MaRibbonResult, RetestResult
+from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars, upsert_tickers, MaRibbonResult, RetestResult, ChartPatternResult
 from app.eodhd_client import fetch_bulk_last_day
 from app.wave_detector import detect_wave3_established, detect_wave3_early
 from app.ma_ribbon_detector import detect_ma_ribbon, detect_ma_ribbon_early
 from app.retest_pattern_detector import detect_ma_cross_retest
+from app.chart_pattern_detector import check_all_chart_patterns
 
 
 async def update_today_bars(client: httpx.AsyncClient) -> int:
@@ -91,6 +92,7 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
         ma_ribbon_matches = 0
         ma_ribbon_early_matches = 0
         retest_matches = 0
+        chart_matches = 0
 
         for symbol in chunk:
             sym_bars = grouped.get(symbol, [])
@@ -184,8 +186,20 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
                     patterns=retest.patterns,
                 ))
 
+            for chart_match in check_all_chart_patterns(dates, closes, volumes):
+                chart_matches += 1
+                session.add(ChartPatternResult(
+                    symbol=symbol, scan_date=today,
+                    pattern_name=chart_match.pattern_name,
+                    name=ticker_names.get(symbol, ""), last_close=last_close,
+                    confidence=chart_match.confidence,
+                    resistance_level=chart_match.resistance_level,
+                    breakout_age_bars=chart_match.breakout_age_bars,
+                    rsi=chart_match.rsi, volume_ratio=chart_match.volume_ratio,
+                ))
+
         session.commit()
-        return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches
+        return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches
     except Exception:
         session.rollback()
         raise
@@ -193,7 +207,7 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
         session.close()
 
 
-def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int, int, int, int]:
+def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int, int, int, int, int]:
     # Short-lived session just to grab the ticker list and clear today's
     # old results -- not held open for the rest of the scan.
     session = get_session()
@@ -204,6 +218,7 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
     session.query(ScanResult).filter_by(scan_date=today).delete()
     session.query(MaRibbonResult).filter_by(scan_date=today).delete()
     session.query(RetestResult).filter_by(scan_date=today).delete()
+    session.query(ChartPatternResult).filter_by(scan_date=today).delete()
     session.commit()
     session.close()
 
@@ -213,6 +228,7 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
     ma_ribbon_matches = 0
     ma_ribbon_early_matches = 0
     retest_matches = 0
+    chart_matches = 0
 
     # Each chunk gets its OWN fresh database session/connection (see
     # _run_chunk), and is retried with backoff if the connection drops.
@@ -225,13 +241,14 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
 
         for attempt in range(1, max_retries + 1):
             try:
-                c_scanned, c_established, c_early, c_ma, c_ma_early, c_retest = _run_chunk(chunk, ticker_names, today)
+                c_scanned, c_established, c_early, c_ma, c_ma_early, c_retest, c_chart = _run_chunk(chunk, ticker_names, today)
                 scanned += c_scanned
                 established_matches += c_established
                 early_matches += c_early
                 ma_ribbon_matches += c_ma
                 ma_ribbon_early_matches += c_ma_early
                 retest_matches += c_retest
+                chart_matches += c_chart
                 break
             except Exception as e:
                 if attempt == max_retries:
@@ -241,12 +258,12 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
                     print(f"  Chunk at {start} failed (attempt {attempt}/{max_retries}): {e} -- retrying in {wait}s...")
                     time.sleep(wait)
 
-        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches
+        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches + chart_matches
         print(f"  Scanned {min(start + chunk_size, len(symbols))}/{len(symbols)} tickers so far "
               f"({established_matches} established, {early_matches} early, {ma_ribbon_matches} ma-ribbon, "
-              f"{ma_ribbon_early_matches} ma-ribbon-early, {retest_matches} retest, {total_matches} total)...")
+              f"{ma_ribbon_early_matches} ma-ribbon-early, {retest_matches} retest, {chart_matches} chart, {total_matches} total)...")
 
-    return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches
+    return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches
 
 
 async def main():
@@ -264,12 +281,12 @@ async def main():
             updated = await update_today_bars(client)
             print(f"Appended {updated} fresh daily bars.")
 
-        print("Scanning tickers for wave-3, MA-ribbon, and retest setups...")
-        scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches = scan_all()
-        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches
+        print("Scanning tickers for wave-3, MA-ribbon, retest, and chart-pattern setups...")
+        scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches = scan_all()
+        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches + chart_matches
         print(f"Scanned {scanned} tickers -- {established_matches} established, {early_matches} early, "
               f"{ma_ribbon_matches} ma-ribbon, {ma_ribbon_early_matches} ma-ribbon-early, "
-              f"{retest_matches} retest, {total_matches} total.")
+              f"{retest_matches} retest, {chart_matches} chart, {total_matches} total.")
 
         session = get_session()
         run = session.get(ScanRun, run_id)

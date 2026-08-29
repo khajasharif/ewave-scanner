@@ -90,6 +90,19 @@ class Settings:
     # The retest (and reversal confirmation) must be this recent to count.
     RETEST_MAX_AGE_BARS: int = int(os.environ.get("RETEST_MAX_AGE_BARS", "5"))
 
+    # --- Bullish Chart Pattern (Double Bottom / Cup & Handle / Ascending
+    # Triangle) screener settings ---
+    CHART_ZIGZAG_PCT: float = float(os.environ.get("CHART_ZIGZAG_PCT", "0.06"))
+    CHART_MIN_BARS: int = int(os.environ.get("CHART_MIN_BARS", "120"))
+    CHART_MAX_BREAKOUT_AGE_BARS: int = int(os.environ.get("CHART_MAX_BREAKOUT_AGE_BARS", "5"))
+    CHART_MIN_VOLUME_RATIO: float = float(os.environ.get("CHART_MIN_VOLUME_RATIO", "1.4"))
+    DOUBLE_BOTTOM_TROUGH_TOLERANCE_PCT: float = float(os.environ.get("DOUBLE_BOTTOM_TROUGH_TOLERANCE_PCT", "0.04"))
+    CUP_MIN_DEPTH_PCT: float = float(os.environ.get("CUP_MIN_DEPTH_PCT", "0.12"))
+    CUP_MAX_DEPTH_PCT: float = float(os.environ.get("CUP_MAX_DEPTH_PCT", "0.55"))
+    CUP_RIM_MATCH_TOLERANCE_PCT: float = float(os.environ.get("CUP_RIM_MATCH_TOLERANCE_PCT", "0.08"))
+    HANDLE_MAX_DEPTH_RATIO: float = float(os.environ.get("HANDLE_MAX_DEPTH_RATIO", "0.5"))
+    TRIANGLE_RESISTANCE_TOLERANCE_PCT: float = float(os.environ.get("TRIANGLE_RESISTANCE_TOLERANCE_PCT", "0.03"))
+
     # Concurrency for outbound EODHD calls during backfill
     BACKFILL_CONCURRENCY: int = int(os.environ.get("BACKFILL_CONCURRENCY", "10"))
 
