@@ -31,7 +31,7 @@
       </div>
       <div class="stat stat--accent">
         <span class="stat__label">Matches</span>
-        <span class="stat__value">{{ established_results|length + early_results|length + ma_ribbon_results|length + ma_ribbon_early_results|length + retest_results|length + chart_pattern_results|length }}</span>
+        <span class="stat__value">{{ established_results|length + early_results|length + ma_ribbon_results|length + ma_ribbon_early_results|length + retest_results|length + chart_pattern_results|length + divergence_results|length }}</span>
       </div>
       {% else %}
       <div class="stat">
@@ -75,6 +75,9 @@ python -m app.scan_job</pre>
     </button>
     <button class="tab" data-tab="chart_patterns" onclick="switchTab('chart_patterns')">
       Chart Patterns <span class="tab__count">{{ chart_pattern_results|length }}</span>
+    </button>
+    <button class="tab" data-tab="divergence" onclick="switchTab('divergence')">
+      RSI Divergence <span class="tab__count">{{ divergence_results|length }}</span>
     </button>
   </div>
 
@@ -358,6 +361,52 @@ python -m app.scan_job</pre>
             <td class="num">{{ r.breakout_age_bars }}</td>
             <td class="num">{{ r.rsi }}</td>
             <td class="num accent">{{ r.volume_ratio }}x</td>
+            <td class="num">
+              <div class="confcell">
+                <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
+                <span>{{ r.confidence }}</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div id="panel-divergence" class="panel panel--hidden">
+    <p class="panel__desc">Price makes an equal or lower low while RSI makes a meaningfully higher low (momentum improving even as price stalls), confirmed by an unusual single-day volume spike at or right after that low.</p>
+    {% if divergence_results|length == 0 %}
+    <div class="empty empty--compact">
+      <h2>No fresh divergences today</h2>
+      <p>Nothing had a confirmed bullish RSI divergence with an unusual volume spike in this scan. Check back after the next close.</p>
+    </div>
+    {% else %}
+    <div class="tablewrap">
+      <table class="board">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Name</th>
+            <th class="num">Close</th>
+            <th class="num">Price low (prior → recent)</th>
+            <th class="num">RSI (prior → recent)</th>
+            <th class="num">Divergence age (bars)</th>
+            <th class="num">Volume spike</th>
+            <th class="num">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in divergence_results %}
+          <tr>
+            <td class="sym">{{ r.symbol }}</td>
+            <td class="name">{{ r.name or "" }}</td>
+            <td class="num">${{ "%.2f"|format(r.last_close) if r.last_close else "—" }}</td>
+            <td class="num">${{ "%.2f"|format(r.price_prior_low) }} → ${{ "%.2f"|format(r.price_recent_low) }}</td>
+            <td class="num">{{ r.rsi_prior_low }} → {{ r.rsi_recent_low }}</td>
+            <td class="num">{{ r.divergence_age_bars }}</td>
+            <td class="num accent">{{ r.volume_spike_ratio }}x</td>
             <td class="num">
               <div class="confcell">
                 <div class="confbar"><div class="confbar__fill" style="width: {{ r.confidence }}%"></div></div>
