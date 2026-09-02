@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.db import init_db, get_session, ScanResult, ScanRun, MaRibbonResult, RetestResult, ChartPatternResult
+from app.db import init_db, get_session, ScanResult, ScanRun, MaRibbonResult, RetestResult, ChartPatternResult, DivergenceResult
 
 app = FastAPI(title="Wave 3 Screener")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -85,6 +85,21 @@ def _serialize_chart(r: ChartPatternResult) -> dict:
     }
 
 
+def _serialize_divergence(r: DivergenceResult) -> dict:
+    return {
+        "symbol": r.symbol,
+        "name": r.name,
+        "last_close": r.last_close,
+        "confidence": r.confidence,
+        "rsi_prior_low": r.rsi_prior_low,
+        "rsi_recent_low": r.rsi_recent_low,
+        "price_prior_low": r.price_prior_low,
+        "price_recent_low": r.price_recent_low,
+        "divergence_age_bars": r.divergence_age_bars,
+        "volume_spike_ratio": r.volume_spike_ratio,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -98,7 +113,8 @@ def api_results():
         session.close()
         return JSONResponse({
             "scan_date": None, "established": [], "early": [],
-            "ma_ribbon": [], "ma_ribbon_early": [], "retest": [], "chart_patterns": [],
+            "ma_ribbon": [], "ma_ribbon_early": [], "retest": [],
+            "chart_patterns": [], "divergence": [],
         })
 
     established = (
@@ -137,6 +153,12 @@ def api_results():
         .order_by(ChartPatternResult.confidence.desc())
         .all()
     )
+    divergence = (
+        session.query(DivergenceResult)
+        .filter_by(scan_date=latest)
+        .order_by(DivergenceResult.confidence.desc())
+        .all()
+    )
     last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
     return {
@@ -148,6 +170,7 @@ def api_results():
         "ma_ribbon_early": [_serialize_ma(r) for r in ma_ribbon_early],
         "retest": [_serialize_retest(r) for r in retest],
         "chart_patterns": [_serialize_chart(r) for r in chart_patterns],
+        "divergence": [_serialize_divergence(r) for r in divergence],
     }
 
 
@@ -161,6 +184,7 @@ def index(request: Request):
     ma_ribbon_early_results = []
     retest_results = []
     chart_pattern_results = []
+    divergence_results = []
     last_run = None
     if latest:
         established_results = (
@@ -199,6 +223,12 @@ def index(request: Request):
             .order_by(ChartPatternResult.confidence.desc())
             .all()
         )
+        divergence_results = (
+            session.query(DivergenceResult)
+            .filter_by(scan_date=latest)
+            .order_by(DivergenceResult.confidence.desc())
+            .all()
+        )
         last_run = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
     session.close()
 
@@ -213,6 +243,7 @@ def index(request: Request):
             "ma_ribbon_early_results": ma_ribbon_early_results,
             "retest_results": retest_results,
             "chart_pattern_results": chart_pattern_results,
+            "divergence_results": divergence_results,
             "last_run": last_run,
         },
     )

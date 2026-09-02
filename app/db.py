@@ -140,6 +140,24 @@ class ChartPatternResult(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class DivergenceResult(Base):
+    __tablename__ = "divergence_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String, index=True, nullable=False)
+    scan_date = Column(Date, index=True, nullable=False, default=date.today)
+    name = Column(String, default="")
+    last_close = Column(Float)
+    confidence = Column(Float)
+    rsi_prior_low = Column(Float)
+    rsi_recent_low = Column(Float)
+    price_prior_low = Column(Float)
+    price_recent_low = Column(Float)
+    divergence_age_bars = Column(Integer, nullable=True)
+    volume_spike_ratio = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate_add_missing_columns()

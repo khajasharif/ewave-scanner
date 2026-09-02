@@ -103,6 +103,21 @@ class Settings:
     HANDLE_MAX_DEPTH_RATIO: float = float(os.environ.get("HANDLE_MAX_DEPTH_RATIO", "0.5"))
     TRIANGLE_RESISTANCE_TOLERANCE_PCT: float = float(os.environ.get("TRIANGLE_RESISTANCE_TOLERANCE_PCT", "0.03"))
 
+    # --- Bullish RSI Divergence + Volume Spike screener settings ---
+    DIVERGENCE_ZIGZAG_PCT: float = float(os.environ.get("DIVERGENCE_ZIGZAG_PCT", "0.06"))
+    DIVERGENCE_MIN_BARS: int = int(os.environ.get("DIVERGENCE_MIN_BARS", "60"))
+    # How much lower/equal (as a fraction) the second price low is allowed
+    # to be vs. the first and still count -- and how much HIGHER it can be
+    # (small tolerance) before it's just a normal higher low, not a divergence.
+    DIVERGENCE_PRICE_TOLERANCE_PCT: float = float(os.environ.get("DIVERGENCE_PRICE_TOLERANCE_PCT", "0.02"))
+    # Minimum RSI-point gap between the two lows to count as a real divergence.
+    DIVERGENCE_MIN_RSI_GAP: float = float(os.environ.get("DIVERGENCE_MIN_RSI_GAP", "5"))
+    # The divergence low must be this recent (bars) for the setup to still be "fresh".
+    DIVERGENCE_MAX_AGE_BARS: int = int(os.environ.get("DIVERGENCE_MAX_AGE_BARS", "10"))
+    # A single day's volume must reach this multiple of the pre-divergence
+    # baseline average somewhere in the window -- the "unusual activity" gate.
+    DIVERGENCE_MIN_VOLUME_SPIKE_MULT: float = float(os.environ.get("DIVERGENCE_MIN_VOLUME_SPIKE_MULT", "3.0"))
+
     # Concurrency for outbound EODHD calls during backfill
     BACKFILL_CONCURRENCY: int = int(os.environ.get("BACKFILL_CONCURRENCY", "10"))
 

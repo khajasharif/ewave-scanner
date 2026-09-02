@@ -18,12 +18,13 @@ from datetime import datetime, date as date_cls, timezone
 import httpx
 
 from app.config import settings
-from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars, upsert_tickers, MaRibbonResult, RetestResult, ChartPatternResult
+from app.db import init_db, get_session, Ticker, PriceBar, ScanResult, ScanRun, upsert_price_bars, upsert_tickers, MaRibbonResult, RetestResult, ChartPatternResult, DivergenceResult
 from app.eodhd_client import fetch_bulk_last_day
 from app.wave_detector import detect_wave3_established, detect_wave3_early
 from app.ma_ribbon_detector import detect_ma_ribbon, detect_ma_ribbon_early
 from app.retest_pattern_detector import detect_ma_cross_retest
 from app.chart_pattern_detector import check_all_chart_patterns
+from app.divergence_detector import detect_bullish_divergence
 
 
 async def update_today_bars(client: httpx.AsyncClient) -> int:
@@ -93,6 +94,7 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
         ma_ribbon_early_matches = 0
         retest_matches = 0
         chart_matches = 0
+        divergence_matches = 0
 
         for symbol in chunk:
             sym_bars = grouped.get(symbol, [])
@@ -198,8 +200,21 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
                     rsi=chart_match.rsi, volume_ratio=chart_match.volume_ratio,
                 ))
 
+            divergence = detect_bullish_divergence(dates, closes, volumes)
+            if divergence.matched:
+                divergence_matches += 1
+                session.add(DivergenceResult(
+                    symbol=symbol, scan_date=today,
+                    name=ticker_names.get(symbol, ""), last_close=last_close,
+                    confidence=divergence.confidence,
+                    rsi_prior_low=divergence.rsi_prior_low, rsi_recent_low=divergence.rsi_recent_low,
+                    price_prior_low=divergence.price_prior_low, price_recent_low=divergence.price_recent_low,
+                    divergence_age_bars=divergence.divergence_age_bars,
+                    volume_spike_ratio=divergence.volume_spike_ratio,
+                ))
+
         session.commit()
-        return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches
+        return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches, divergence_matches
     except Exception:
         session.rollback()
         raise
@@ -207,7 +222,7 @@ def _run_chunk(chunk: list[str], ticker_names: dict, today) -> tuple[int, int, i
         session.close()
 
 
-def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int, int, int, int, int]:
+def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int, int, int, int, int, int]:
     # Short-lived session just to grab the ticker list and clear today's
     # old results -- not held open for the rest of the scan.
     session = get_session()
@@ -219,6 +234,7 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
     session.query(MaRibbonResult).filter_by(scan_date=today).delete()
     session.query(RetestResult).filter_by(scan_date=today).delete()
     session.query(ChartPatternResult).filter_by(scan_date=today).delete()
+    session.query(DivergenceResult).filter_by(scan_date=today).delete()
     session.commit()
     session.close()
 
@@ -229,6 +245,7 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
     ma_ribbon_early_matches = 0
     retest_matches = 0
     chart_matches = 0
+    divergence_matches = 0
 
     # Each chunk gets its OWN fresh database session/connection (see
     # _run_chunk), and is retried with backoff if the connection drops.
@@ -241,7 +258,7 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
 
         for attempt in range(1, max_retries + 1):
             try:
-                c_scanned, c_established, c_early, c_ma, c_ma_early, c_retest, c_chart = _run_chunk(chunk, ticker_names, today)
+                c_scanned, c_established, c_early, c_ma, c_ma_early, c_retest, c_chart, c_div = _run_chunk(chunk, ticker_names, today)
                 scanned += c_scanned
                 established_matches += c_established
                 early_matches += c_early
@@ -249,6 +266,7 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
                 ma_ribbon_early_matches += c_ma_early
                 retest_matches += c_retest
                 chart_matches += c_chart
+                divergence_matches += c_div
                 break
             except Exception as e:
                 if attempt == max_retries:
@@ -258,12 +276,13 @@ def scan_all(chunk_size: int = 150, max_retries: int = 3) -> tuple[int, int, int
                     print(f"  Chunk at {start} failed (attempt {attempt}/{max_retries}): {e} -- retrying in {wait}s...")
                     time.sleep(wait)
 
-        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches + chart_matches
+        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches + chart_matches + divergence_matches
         print(f"  Scanned {min(start + chunk_size, len(symbols))}/{len(symbols)} tickers so far "
               f"({established_matches} established, {early_matches} early, {ma_ribbon_matches} ma-ribbon, "
-              f"{ma_ribbon_early_matches} ma-ribbon-early, {retest_matches} retest, {chart_matches} chart, {total_matches} total)...")
+              f"{ma_ribbon_early_matches} ma-ribbon-early, {retest_matches} retest, {chart_matches} chart, "
+              f"{divergence_matches} divergence, {total_matches} total)...")
 
-    return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches
+    return scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches, divergence_matches
 
 
 async def main():
@@ -281,12 +300,12 @@ async def main():
             updated = await update_today_bars(client)
             print(f"Appended {updated} fresh daily bars.")
 
-        print("Scanning tickers for wave-3, MA-ribbon, retest, and chart-pattern setups...")
-        scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches = scan_all()
-        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches + chart_matches
+        print("Scanning tickers for wave-3, MA-ribbon, retest, chart-pattern, and divergence setups...")
+        scanned, established_matches, early_matches, ma_ribbon_matches, ma_ribbon_early_matches, retest_matches, chart_matches, divergence_matches = scan_all()
+        total_matches = established_matches + early_matches + ma_ribbon_matches + ma_ribbon_early_matches + retest_matches + chart_matches + divergence_matches
         print(f"Scanned {scanned} tickers -- {established_matches} established, {early_matches} early, "
               f"{ma_ribbon_matches} ma-ribbon, {ma_ribbon_early_matches} ma-ribbon-early, "
-              f"{retest_matches} retest, {chart_matches} chart, {total_matches} total.")
+              f"{retest_matches} retest, {chart_matches} chart, {divergence_matches} divergence, {total_matches} total.")
 
         session = get_session()
         run = session.get(ScanRun, run_id)
